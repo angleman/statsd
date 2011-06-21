@@ -1,6 +1,9 @@
 var dgram  = require('dgram')
   , sys    = require('sys')
   , net    = require('net')
+  , http   = require('http')
+  , crypto = require('crypto')
+  , querystring = require('querystring')
   , config = require('./config')
 
 var counters = {};
@@ -62,74 +65,125 @@ config.configFile(process.argv[2], function (config, oldConfig) {
     var flushInterval = Number(config.flushInterval || 10000);
 
     flushInt = setInterval(function () {
-      var statString = '';
-      var ts = Math.round(new Date().getTime() / 1000);
-      var numStats = 0;
-      var key;
-
-      for (key in counters) {
-        var value = counters[key] / (flushInterval / 1000);
-        var message = 'stats.' + key + ' ' + value + ' ' + ts + "\n";
-        message += 'stats_counts.' + key + ' ' + counters[key] + ' ' + ts + "\n";
-        statString += message;
-        counters[key] = 0;
-
-        numStats += 1;
-      }
-
-      for (key in timers) {
-        if (timers[key].length > 0) {
-          var pctThreshold = config.percentThreshold || 90;
-          var values = timers[key].sort(function (a,b) { return a-b; });
-          var count = values.length;
-          var min = values[0];
-          var max = values[count - 1];
-
-          var mean = min;
-          var maxAtThreshold = max;
-
-          if (count > 1) {
-            var thresholdIndex = Math.round(((100 - pctThreshold) / 100) * count);
-            var numInThreshold = count - thresholdIndex;
-            values = values.slice(0, numInThreshold);
-            maxAtThreshold = values[numInThreshold - 1];
-
-            // average the remaining timings
-            var sum = 0;
-            for (var i = 0; i < numInThreshold; i++) {
-              sum += values[i];
-            }
-
-            mean = sum / numInThreshold;
-          }
-
-          timers[key] = [];
-
-          var message = "";
-          message += 'stats.timers.' + key + '.mean ' + mean + ' ' + ts + "\n";
-          message += 'stats.timers.' + key + '.upper ' + max + ' ' + ts + "\n";
-          message += 'stats.timers.' + key + '.upper_' + pctThreshold + ' ' + maxAtThreshold + ' ' + ts + "\n";
-          message += 'stats.timers.' + key + '.lower ' + min + ' ' + ts + "\n";
-          message += 'stats.timers.' + key + '.count ' + count + ' ' + ts + "\n";
-          statString += message;
-
-          numStats += 1;
-        }
-      }
-
-      statString += 'statsd.numStats ' + numStats + ' ' + ts + "\n";
-      
       try {
-        var graphite = net.createConnection(config.graphitePort, config.graphiteHost);
-        graphite.addListener('error', function(connectionException){
-          if (config.debug) {
-            sys.log(connectionException);
+        if (config.graphitePort && config.graphiteHost) {
+          var statString = '';
+          var ts = Math.round(new Date().getTime() / 1000);
+          var numStats = 0;
+          var key;
+
+          for (key in counters) {
+            var value = counters[key] / (flushInterval / 1000);
+            var message = 'stats.' + key + ' ' + value + ' ' + ts + "\n";
+            message += 'stats_counts.' + key + ' ' + counters[key] + ' ' + ts + "\n";
+            statString += message;
+            counters[key] = 0;
+
+            numStats += 1;
           }
-        });
-        graphite.on('connect', function() {
-          this.write(statString);
-          this.end();
-        });
+
+          for (key in timers) {
+            if (timers[key].length > 0) {
+              var pctThreshold = config.percentThreshold || 90;
+              var values = timers[key].sort(function (a,b) { return a-b; });
+              var count = values.length;
+              var min = values[0];
+              var max = values[count - 1];
+
+              var mean = min;
+              var maxAtThreshold = max;
+
+              if (count > 1) {
+                var thresholdIndex = Math.round(((100 - pctThreshold) / 100) * count);
+                var numInThreshold = count - thresholdIndex;
+                values = values.slice(0, numInThreshold);
+                maxAtThreshold = values[numInThreshold - 1];
+
+                // average the remaining timings
+                var sum = 0;
+                for (var i = 0; i < numInThreshold; i++) {
+                  sum += values[i];
+                }
+
+                mean = sum / numInThreshold;
+              }
+
+              timers[key] = [];
+
+              var message = "";
+              message += 'stats.timers.' + key + '.mean ' + mean + ' ' + ts + "\n";
+              message += 'stats.timers.' + key + '.upper ' + max + ' ' + ts + "\n";
+              message += 'stats.timers.' + key + '.upper_' + pctThreshold + ' ' + maxAtThreshold + ' ' + ts + "\n";
+              message += 'stats.timers.' + key + '.lower ' + min + ' ' + ts + "\n";
+              message += 'stats.timers.' + key + '.count ' + count + ' ' + ts + "\n";
+              statString += message;
+
+              numStats += 1;
+            }
+          }
+
+          statString += 'statsd.numStats ' + numStats + ' ' + ts + "\n";
+
+          var graphite = net.createConnection(config.graphitePort, config.graphiteHost);
+          graphite.addListener('error', function(connectionException){
+            if (config.debug) {
+              sys.log(connectionException);
+            }
+          });
+          graphite.on('connect', function() {
+            this.write(statString);
+            this.end();
+          });
+        } else if (config.datadogPort && config.datadogHost && 
+            config.datadogApiKey) {
+          var payload = {
+              collection_timestamp: parseInt(new Date().getTime() / 1000),
+              internalHostname: config.host,
+              apiKey : config.datadogApiKey,
+              uuid: 'statsd',
+          }
+          
+          for (key in counters) {
+            var value = counters[key] / (flushInterval / 1000);
+            payload[key] = value;
+            counters[key] = 0;
+          }
+          
+          var payload_str = JSON.stringify(payload)
+          var md5sum = crypto.createHash('md5'),
+              hash = md5sum.update(payload_str).digest('hex')
+
+          var req_body = querystring.stringify({
+              payload: payload_str,
+              hash: hash
+          })
+          var req = http.request({
+            host: config.datadogHost,
+            port: config.datadogPort,
+            path: '/intake',
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/x-www-form-urlencoded',
+                'Content-Length': req_body.length
+            }
+          }, function(response) {
+            sys.log('STATUS: ' + response.statusCode)
+            
+            if (response.statusCode != 200) {
+              sys.log('Could not submit')
+            } else {
+              sys.log(JSON.stringify(payload, null, '  '))
+            }
+          })
+          
+          req.on('error', function(e) {
+            sys.log('problem with request: ' + e.message);
+          });
+          
+          req.write(req_body)
+          req.end();
+          
+        }
       } catch(e){
         if (config.debug) {
           sys.log(e);
