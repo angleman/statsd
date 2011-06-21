@@ -148,7 +148,43 @@ config.configFile(process.argv[2], function (config, oldConfig) {
             payload[key] = value;
             counters[key] = 0;
           }
-          
+
+
+          for (key in timers) {
+            if (timers[key].length > 0) {
+              var pctThreshold = config.percentThreshold || 90;
+              var values = timers[key].sort(function (a,b) { return a-b; });
+              var count = values.length;
+              var min = values[0];
+              var max = values[count - 1];
+
+              var mean = min;
+              var maxAtThreshold = max;
+
+              if (count > 1) {
+                var thresholdIndex = Math.round(((100 - pctThreshold) / 100) * count);
+                var numInThreshold = count - thresholdIndex;
+                values = values.slice(0, numInThreshold);
+                maxAtThreshold = values[numInThreshold - 1];
+
+                // average the remaining timings
+                var sum = 0;
+                for (var i = 0; i < numInThreshold; i++) {
+                  sum += values[i];
+                }
+
+                mean = sum / numInThreshold;
+              }
+
+              timers[key] = [];
+              payload[key + '.mean'] = mean;
+              payload[key + '.upper'] = max;
+              payload[key + '.upper_' + pctThreshold] = maxAtThreshold;
+              payload[key + '.lower'] = min;
+              payload[key + '.count'] = count;              
+            }
+          }
+                    
           var payload_str = JSON.stringify(payload)
           var md5sum = crypto.createHash('md5'),
               hash = md5sum.update(payload_str).digest('hex')
