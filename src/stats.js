@@ -1,14 +1,19 @@
 var dgram  = require('dgram')
   , sys    = require('sys')
   , net    = require('net')
-  , http   = require('http')
   , crypto = require('crypto')
   , querystring = require('querystring')
+  , url    = require('url')
+  , os     = require('os')
   , config = require('./config')
+  , http;
+    
+  
 
 var counters = {};
 var timers = {};
 var debugInt, flushInt, server;
+
 
 config.configFile(process.argv[2], function (config, oldConfig) {
   if (! config.debug && debugInt) {
@@ -134,11 +139,10 @@ config.configFile(process.argv[2], function (config, oldConfig) {
             this.write(statString);
             this.end();
           });
-        } else if (config.datadogPort && config.datadogHost && 
-            config.datadogApiKey) {
+        } else if (config.datadogHost && config.datadogApiKey) {
           var payload = {
               collection_timestamp: parseInt(new Date().getTime() / 1000),
-              internalHostname: config.host,
+              internalHostname: config.host || os.hostname(),
               apiKey : config.datadogApiKey,
               uuid: 'statsd',
           }
@@ -193,27 +197,39 @@ config.configFile(process.argv[2], function (config, oldConfig) {
               payload: payload_str,
               hash: hash
           })
-          var req = http.request({
-            host: config.datadogHost,
-            port: config.datadogPort,
+
+          var http_options = {
             path: '/intake',
             method: 'POST',
             headers: {
                 'Content-Type': 'application/x-www-form-urlencoded',
                 'Content-Length': req_body.length
             }
-          }, function(response) {
-            sys.log('STATUS: ' + response.statusCode)
-            
+          };
+          
+          var parsed_host = url.parse(config.datadogHost);
+          if (parsed_host.protocol == 'http:') {
+            http = require('http');
+          } else {
+            http = require('https');
+          }
+          
+          if (parsed_host.port) {
+            http_options.port = parsed_host.port;
+          }
+          
+          http_options.host = parsed_host.hostname;
+          
+          var req = http.request(http_options, function(response) {
             if (response.statusCode != 200) {
               sys.log('Could not submit')
-            } else {
+            } else if (config.debug) {
               sys.log(JSON.stringify(payload, null, '  '))
             }
           })
           
           req.on('error', function(e) {
-            sys.log('problem with request: ' + e.message);
+            sys.log('Fail request to datadog: \n' + JSON.stringify(e, null, '  '));
           });
           
           req.write(req_body)
