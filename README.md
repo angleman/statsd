@@ -1,10 +1,7 @@
 StatsD
 ======
 
-A network daemon for aggregating statistics (counters and timers), rolling them up, then sending them to [graphite][graphite].
-
-We ([Etsy][etsy]) [blogged][blog post] about how it works and why we created it.
-
+A fork of [Etsy][etsy]'s network daemon for aggregating statistics (counters and timers), rolling them up, then sending them to [Datadog][datadog].
 
 Concepts
 --------
@@ -48,22 +45,6 @@ Guts
   Client libraries use UDP to send information to the StatsD daemon.
 
 * [NodeJS][node]
-* [Graphite][graphite]
-
-Graphite uses "schemas" to define the different round robin datasets it houses (analogous to RRAs in rrdtool). Here's what Etsy is using for the stats databases:
-
-    [stats]
-    priority = 110
-    pattern = ^stats\..*
-    retentions = 10:2160,60:10080,600:262974
-
-That translates to:
-
-* 6 hours of 10 second data (what we consider "near-realtime")
-* 1 week of 1 minute data
-* 5 years of 10 minute data
-
-This has been a good tradeoff so far between size-of-file (round robin databases are fixed size) and data we care about. Each "stats" database is about 3.2 megs with these retentions.
 
 Installation and Configuration
 ------------------------------
@@ -99,7 +80,7 @@ fork StatsD from here: http://github.com/etsy/statsd
 
 We'll do our best to get your changes in!
 
-[graphite]: http://graphite.wikidot.com
+[datadog]: http://datadoghq.com
 [etsy]: http://www.etsy.com
 [blog post]: http://codeascraft.etsy.com/2011/02/15/measure-anything-measure-everything/
 [node]: http://nodejs.org
@@ -110,4 +91,4 @@ Contributors
 -----------------
 
 In lieu of a list of contributors, check out the commit history for the project:
-http://github.com/etsy/statsd/commits/master
+http://github.com/etsy/statsd/commits/master and https://github.com/DataDog/statsd/commits/master
