@@ -1,5 +1,5 @@
 var fs  = require('fs')
-  , sys = require('sys')
+  , util = require('util')
 
 var Configurator = function (file) {
 
@@ -8,13 +8,13 @@ var Configurator = function (file) {
   var oldConfig = {};
 
   this.updateConfig = function () {
-    sys.log('reading config file: ' + file);
+    util.log('reading config file: ' + file);
 
     fs.readFile(file, function (err, data) {
       if (err) { throw err; }
       old_config = self.config;
 
-      self.config = process.compile('config = ' + data, file);
+      self.config = eval('config = ' + fs.readFileSync(file));
       self.emit('configChanged', self.config);
     });
   };
@@ -26,7 +26,7 @@ var Configurator = function (file) {
   });
 };
 
-sys.inherits(Configurator, process.EventEmitter);
+util.inherits(Configurator, process.EventEmitter);
 
 exports.Configurator = Configurator;
 
