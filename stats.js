@@ -259,7 +259,7 @@ config.configFile(process.argv[2], function (config, oldConfig) {
       }
       if (config.datadogApiKey) {
           var now = parseInt(new Date().getTime() / 1000);
-          var host = os.hostname();
+          var host = config.hostname || os.hostname();
           var payload = [];
 
           for (key in counters) {
