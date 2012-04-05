@@ -395,47 +395,12 @@ var Datadog = function(api_key, app_key, options) {
     this.pending_requests = 0;
 }
 
-Datadog.prototype.metric = function(name, value, options) {
-    var options = options || {};
-    var client = this;
-
-    var message;
-    if (value instanceof Array) {
-        message = {
-            series: [{
-                metric: name,
-                points: value,
-                host: client.host_name
-            }]
-        };
-    } else {
-        var t = options.timestamp || now();
-        message = {
-            series: [{
-                metric: name,
-                points: [[t, value]],
-                host: client.host_name
-            }]
-        };
-    }
-    client._post('series', message);    
-}
-
 Datadog.prototype.metrics = function(payload) {
     var client = this;
     var message = {
         series: payload
     };
     client._post('series', message);    
-}
-
-Datadog.prototype.event = function(evt) {
-    var client = this;
-    if (evt.tags && evt.tags instanceof Array) {
-        evt.tags = evt.tags.join(',')
-    }
-
-    client._post('events', evt);
 }
 
 Datadog.prototype._post = function(controller, message) {
