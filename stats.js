@@ -257,7 +257,7 @@ config.configFile(process.argv[2], function (config, oldConfig) {
           stats['graphite']['last_exception'] = Math.round(new Date().getTime() / 1000);
         }
       }
-      if (config.datadogApiKey && config.datadogAppKey) {
+      if (config.datadogApiKey) {
           var now = parseInt(new Date().getTime() / 1000);
           var host = os.hostname();
           var payload = [];
@@ -333,7 +333,7 @@ config.configFile(process.argv[2], function (config, oldConfig) {
             }
           }
 
-          new Datadog(config.datadogApiKey, config.datadogAppKey, {
+          new Datadog(config.datadogApiKey, {
             api_host: config.datadogApiHost}).metrics(payload);
 
       }
@@ -383,11 +383,10 @@ function now() {
     return new Date().getTime()/1000;
 }
 
-var Datadog = function(api_key, app_key, options) {
+var Datadog = function(api_key, options) {
     var options = options || {};
 
     this.api_key = api_key;
-    this.app_key = app_key;
 
     this.api_host = options.api_host || 'https://app.datadoghq.com';
     this.host_name = options.host_name || os.hostname();
@@ -421,8 +420,7 @@ Datadog.prototype._post = function(controller, message) {
     var req = transport.request({
         host: api_host,
         port: api_port,
-        path: '/api/v1/' + controller + '?api_key=' + client.api_key
-                  + '&application_key=' + client.app_key,
+        path: '/api/v1/' + controller + '?api_key=' + client.api_key,
         method: 'POST',
         headers: {
             "Host": client.api_host,
