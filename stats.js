@@ -175,21 +175,32 @@ config.configFile(process.argv[2], function (config, oldConfig) {
       var ts = Math.round(new Date().getTime() / 1000);
       var numStats = 0;
       var key;
+      var snapshotCounters = {}
+      var snapshotTimers = {}
 
       for (key in counters) {
-        var value = counters[key];
+        snapshotCounters[key] = counters[key];
+        counters[key] = 0
+      }
+
+      for (key in timers) {
+        snapshotTimers[key] = timers[key];
+        timers[key] = [];
+      }
+
+      for (key in snapshotCounters) {
+        var value = snapshotCounters[key];
         var valuePerSecond = value / (flushInterval / 1000); // calculate "per second" rate
 
         statString += 'stats.'        + key + ' ' + valuePerSecond + ' ' + ts + "\n";
         statString += 'stats_counts.' + key + ' ' + value          + ' ' + ts + "\n";
 
-        counters[key] = 0;
         numStats += 1;
       }
 
-      for (key in timers) {
-        if (timers[key].length > 0) {
-          var values = timers[key].sort(function (a,b) { return a-b; });
+      for (key in snapshotTimers) {
+        if (snapshotTimers[key].length > 0) {
+          var values = snapshotTimers[key].sort(function (a,b) { return a-b; });
           var count = values.length;
           var min = values[0];
           var max = values[count - 1];
@@ -223,8 +234,6 @@ config.configFile(process.argv[2], function (config, oldConfig) {
             message += 'stats.timers.' + key + '.mean_'  + clean_pct + ' ' + mean           + ' ' + ts + "\n";
             message += 'stats.timers.' + key + '.upper_' + clean_pct + ' ' + maxAtThreshold + ' ' + ts + "\n";
           }
-
-          timers[key] = [];
 
           message += 'stats.timers.' + key + '.upper ' + max   + ' ' + ts + "\n";
           message += 'stats.timers.' + key + '.lower ' + min   + ' ' + ts + "\n";
@@ -262,8 +271,8 @@ config.configFile(process.argv[2], function (config, oldConfig) {
           var host = config.hostname || os.hostname();
           var payload = [];
 
-          for (key in counters) {
-            var value = counters[key];
+          for (key in snapshotCounters) {
+            var value = snapshotCounters[key];
             payload.push({
               metric: key,
               points: [[now, value]],
@@ -273,10 +282,10 @@ config.configFile(process.argv[2], function (config, oldConfig) {
           }
 
 
-          for (key in timers) {
-            if (timers[key].length > 0) {
+          for (key in snapshotTimers) {
+            if (snapshotTimers[key].length > 0) {
               var pctThreshold = config.percentThreshold || 90;
-              var values = timers[key].sort(function (a,b) { return a-b; });
+              var values = snapshotTimers[key].sort(function (a,b) { return a-b; });
               var count = values.length;
               var min = values[0];
               var max = values[count - 1];
@@ -299,7 +308,6 @@ config.configFile(process.argv[2], function (config, oldConfig) {
                 mean = sum / numInThreshold;
               }
 
-              timers[key] = [];
               payload.push({
                 metric: key + '.mean',
                 points: [[now, mean]],
