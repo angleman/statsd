@@ -439,6 +439,10 @@ Datadog.prototype._post = function(controller, message) {
     function(response) {
         client.pending_requests -= 1;
     });    
+    req.on('error', function(e) {
+      util.log('problem with request: ' + e.message);
+      client.pending_requests -= 1;
+    });
     client.pending_requests += 1;
     req.write(body);
     req.end();
