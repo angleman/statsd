@@ -15,6 +15,10 @@ var stats = {
     last_flush: startup_time,
     last_exception: startup_time
   },
+  datadog: {
+    last_flush: null,
+    last_exception: null,
+  },
   messages: {
     last_msg_seen: startup_time,
     bad_lines_seen: 0,
@@ -31,6 +35,14 @@ config.configFile(process.argv[2], function (config, oldConfig) {
     if (debugInt !== undefined) { clearInterval(debugInt); }
     debugInt = setInterval(function () { 
       util.log("Counters:\n" + util.inspect(counters) + "\nTimers:\n" + util.inspect(timers));
+      if (config.datadogApiKey) {
+        if (stats['datadog']['last_flush']) {
+          util.log("Datadog - last flush: " + stats['datadog']['last_flush']);
+        }
+        if (stats['datadog']['last_exception']) {
+          util.log("Datadog - last exception: " + stats['datadog']['last_exception']);
+        }
+      }
     }, config.debugInterval || 10000);
   }
 
@@ -246,6 +258,7 @@ config.configFile(process.argv[2], function (config, oldConfig) {
 
       statString += 'statsd.numStats ' + numStats + ' ' + ts + "\n";
       
+      // Graphite
       if (config.graphiteHost) {
         try {
           var graphite = net.createConnection(config.graphitePort, config.graphiteHost);
@@ -266,11 +279,14 @@ config.configFile(process.argv[2], function (config, oldConfig) {
           stats['graphite']['last_exception'] = Math.round(new Date().getTime() / 1000);
         }
       }
+
+      // Datadog
       if (config.datadogApiKey) {
           var now = parseInt(new Date().getTime() / 1000);
           var host = config.hostname || os.hostname();
           var payload = [];
 
+	  // Send counters
           for (key in snapshotCounters) {
             var value = snapshotCounters[key];
             payload.push({
@@ -281,7 +297,7 @@ config.configFile(process.argv[2], function (config, oldConfig) {
             })
           }
 
-
+	  // Compute timers and send
           for (key in snapshotTimers) {
             if (snapshotTimers[key].length > 0) {
               var pctThreshold = config.percentThreshold || 90;
@@ -341,9 +357,7 @@ config.configFile(process.argv[2], function (config, oldConfig) {
             }
           }
 
-          new Datadog(config.datadogApiKey, {
-            api_host: config.datadogApiHost}).metrics(payload);
-
+          new Datadog(config.datadogApiKey, {api_host: config.datadogApiHost}).metrics(payload);
       }
 
     }, flushInterval);
@@ -419,6 +433,7 @@ Datadog.prototype._post = function(controller, message) {
     if (parsed.protocol == 'http:') {
         transport = http;
         api_port = parsed.port || 80;
+        util.log("Warning! You are about to send unencrypted metrics.");
     } else {
         transport = https;
         api_port = parsed.port || 443;
@@ -437,14 +452,16 @@ Datadog.prototype._post = function(controller, message) {
         }
     },
     function(response) {
+        stats['datadog']['last_flush'] = Math.round(new Date().getTime() / 1000);
         client.pending_requests -= 1;
     });    
     req.on('error', function(e) {
-      util.log('problem with request: ' + e.message);
+      util.log('Skipping, cannot send data to Datadog: ' + e.message);
+      stats['datadog']['last_exception'] = Math.round(new Date().getTime() / 1000);
       client.pending_requests -= 1;
-    });
+     });
+
     client.pending_requests += 1;
     req.write(body);
     req.end();
 }
-

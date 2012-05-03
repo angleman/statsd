@@ -7,7 +7,6 @@ Required Variables:
 Datadog Require Variables:
 
   datadogApiKey:    The API key for your Datadog org
-  datadogAppKey:    The application key you generated for Statsd
 
 Graphite Required Variables:
 
@@ -36,9 +35,5 @@ Optional Variables:
 
 */
 {
-  datadogApiKey: "YOUR_API_KEY_HERE"
-, datadogAppKey: "YOUR_APP_KEY_HERE"
-, graphitePort: 2003
-, graphiteHost: "graphite.host.com"
-, port: 8125
+  datadogApiKey: "YOUR_API_KEY_HERE from http://dtdg.co/my-api-key"
 }
