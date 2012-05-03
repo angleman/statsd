@@ -175,21 +175,32 @@ config.configFile(process.argv[2], function (config, oldConfig) {
       var ts = Math.round(new Date().getTime() / 1000);
       var numStats = 0;
       var key;
+      var snapshotCounters = {}
+      var snapshotTimers = {}
 
       for (key in counters) {
-        var value = counters[key];
+        snapshotCounters[key] = counters[key];
+        counters[key] = 0
+      }
+
+      for (key in timers) {
+        snapshotTimers[key] = timers[key];
+        timers[key] = [];
+      }
+
+      for (key in snapshotCounters) {
+        var value = snapshotCounters[key];
         var valuePerSecond = value / (flushInterval / 1000); // calculate "per second" rate
 
         statString += 'stats.'        + key + ' ' + valuePerSecond + ' ' + ts + "\n";
         statString += 'stats_counts.' + key + ' ' + value          + ' ' + ts + "\n";
 
-        counters[key] = 0;
         numStats += 1;
       }
 
-      for (key in timers) {
-        if (timers[key].length > 0) {
-          var values = timers[key].sort(function (a,b) { return a-b; });
+      for (key in snapshotTimers) {
+        if (snapshotTimers[key].length > 0) {
+          var values = snapshotTimers[key].sort(function (a,b) { return a-b; });
           var count = values.length;
           var min = values[0];
           var max = values[count - 1];
@@ -224,8 +235,6 @@ config.configFile(process.argv[2], function (config, oldConfig) {
             message += 'stats.timers.' + key + '.upper_' + clean_pct + ' ' + maxAtThreshold + ' ' + ts + "\n";
           }
 
-          timers[key] = [];
-
           message += 'stats.timers.' + key + '.upper ' + max   + ' ' + ts + "\n";
           message += 'stats.timers.' + key + '.lower ' + min   + ' ' + ts + "\n";
           message += 'stats.timers.' + key + '.count ' + count + ' ' + ts + "\n";
@@ -257,13 +266,13 @@ config.configFile(process.argv[2], function (config, oldConfig) {
           stats['graphite']['last_exception'] = Math.round(new Date().getTime() / 1000);
         }
       }
-      if (config.datadogApiKey && config.datadogAppKey) {
+      if (config.datadogApiKey) {
           var now = parseInt(new Date().getTime() / 1000);
-          var host = os.hostname();
+          var host = config.hostname || os.hostname();
           var payload = [];
 
-          for (key in counters) {
-            var value = counters[key];
+          for (key in snapshotCounters) {
+            var value = snapshotCounters[key];
             payload.push({
               metric: key,
               points: [[now, value]],
@@ -273,10 +282,10 @@ config.configFile(process.argv[2], function (config, oldConfig) {
           }
 
 
-          for (key in timers) {
-            if (timers[key].length > 0) {
+          for (key in snapshotTimers) {
+            if (snapshotTimers[key].length > 0) {
               var pctThreshold = config.percentThreshold || 90;
-              var values = timers[key].sort(function (a,b) { return a-b; });
+              var values = snapshotTimers[key].sort(function (a,b) { return a-b; });
               var count = values.length;
               var min = values[0];
               var max = values[count - 1];
@@ -299,7 +308,6 @@ config.configFile(process.argv[2], function (config, oldConfig) {
                 mean = sum / numInThreshold;
               }
 
-              timers[key] = [];
               payload.push({
                 metric: key + '.mean',
                 points: [[now, mean]],
@@ -333,7 +341,7 @@ config.configFile(process.argv[2], function (config, oldConfig) {
             }
           }
 
-          new Datadog(config.datadogApiKey, config.datadogAppKey, {
+          new Datadog(config.datadogApiKey, {
             api_host: config.datadogApiHost}).metrics(payload);
 
       }
@@ -383,42 +391,15 @@ function now() {
     return new Date().getTime()/1000;
 }
 
-var Datadog = function(api_key, app_key, options) {
+var Datadog = function(api_key, options) {
     var options = options || {};
 
     this.api_key = api_key;
-    this.app_key = app_key;
 
     this.api_host = options.api_host || 'https://app.datadoghq.com';
     this.host_name = options.host_name || os.hostname();
 
     this.pending_requests = 0;
-}
-
-Datadog.prototype.metric = function(name, value, options) {
-    var options = options || {};
-    var client = this;
-
-    var message;
-    if (value instanceof Array) {
-        message = {
-            series: [{
-                metric: name,
-                points: value,
-                host: client.host_name
-            }]
-        };
-    } else {
-        var t = options.timestamp || now();
-        message = {
-            series: [{
-                metric: name,
-                points: [[t, value]],
-                host: client.host_name
-            }]
-        };
-    }
-    client._post('series', message);    
 }
 
 Datadog.prototype.metrics = function(payload) {
@@ -427,15 +408,6 @@ Datadog.prototype.metrics = function(payload) {
         series: payload
     };
     client._post('series', message);    
-}
-
-Datadog.prototype.event = function(evt) {
-    var client = this;
-    if (evt.tags && evt.tags instanceof Array) {
-        evt.tags = evt.tags.join(',')
-    }
-
-    client._post('events', evt);
 }
 
 Datadog.prototype._post = function(controller, message) {
@@ -456,8 +428,7 @@ Datadog.prototype._post = function(controller, message) {
     var req = transport.request({
         host: api_host,
         port: api_port,
-        path: '/api/v1/' + controller + '?api_key=' + client.api_key
-                  + '&application_key=' + client.app_key,
+        path: '/api/v1/' + controller + '?api_key=' + client.api_key,
         method: 'POST',
         headers: {
             "Host": client.api_host,
@@ -468,6 +439,10 @@ Datadog.prototype._post = function(controller, message) {
     function(response) {
         client.pending_requests -= 1;
     });    
+    req.on('error', function(e) {
+      util.log('problem with request: ' + e.message);
+      client.pending_requests -= 1;
+    });
     client.pending_requests += 1;
     req.write(body);
     req.end();
