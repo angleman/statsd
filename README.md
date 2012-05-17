@@ -85,13 +85,11 @@ A simple nagios check can be found in the utils/ directory that can be used to c
 Installation and Configuration
 ------------------------------
 
- * Install node.js
- * Clone the project
- * Create a config file from exampleConfig.js and put it somewhere
- * Get your Datadog API key and generate an app key and stick them into your config file
- * Start the Daemon:
-
-    node stats.js /path/to/config
+1. Install node.js
+2. Clone the project
+3. Create a config file from exampleConfig.js and put it somewhere
+4. Get your Datadog API key and generate an app key and stick them into your config file
+5. Start the Daemon: `node stats.js /path/to/config`
 
 Tests
 -----
