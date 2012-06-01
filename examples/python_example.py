@@ -5,10 +5,8 @@
  
 # this file expects local_settings.py to be in the same dir, with statsd host and port information:
 # 
-from socket import socket, AF_INET, SOCK_DGRAM
-
-statsd_host = 'localhost'
-statsd_port = 8125
+# statsd_host = 'localhost'
+# statsd_port = 8125
 
 # Sends statistics to the stats daemon over UDP
 class Statsd(object):
@@ -60,9 +58,13 @@ class Statsd(object):
         """
         Squirt the metrics over UDP
         """
-        host = statsd_host
-        port = statsd_port
-        addr=(host, port)
+        try:
+            import local_settings as settings
+            host = settings.statsd_host
+            port = settings.statsd_port
+            addr=(host, port)
+        except Error:
+            exit(1)
         
         sampled_data = {}
         
@@ -70,11 +72,12 @@ class Statsd(object):
             import random
             if random.random() <= sample_rate:
                 for stat in data.keys():
-                    value = data[stat]
+                    value = sampled_data[stat]
                     sampled_data[stat] = "%s|@%s" %(value, sample_rate)
         else:
             sampled_data=data
         
+        from socket import *
         udp_sock = socket(AF_INET, SOCK_DGRAM)
         try:
             for stat in sampled_data.keys():
@@ -86,8 +89,3 @@ class Statsd(object):
             from pprint import pprint
             print "Unexpected error:", pprint(sys.exc_info())
             pass # we don't care
-
-if __name__ == '__main__':
-    Statsd.increment('test.data.counter', 1)
-
-
