@@ -1,4 +1,5 @@
 StatsD [![Build Status](https://secure.travis-ci.org/datadog/statsd.png)](http://travis-ci.org/datadog/statsd)
+======
 
 A fork of [Etsy][etsy]'s network daemon for aggregating statistics (counters and timers), rolling them up, then sending them to [Datadog][datadog].
 
