@@ -24,8 +24,9 @@ Installation and Configuration
 
 1. Install node.js
 2. Clone the project
-3. Create a config file from exampleConfig.js and put it somewhere
-4. Start the Daemon
+3. Create a config file from `exampleConfig.js` and put it somewhere
+
+Then start the daemon:
 
     node stats.js /path/to/config
 
@@ -85,8 +86,6 @@ Contribute
 ---------------------
 
 You're interested in contributing to StatsD? *AWESOME*. Here are the basic steps:
-
-fork StatsD from here: http://github.com/etsy/statsd
 
 1. Clone your fork
 2. Hack away
