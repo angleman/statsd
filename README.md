@@ -1,7 +1,8 @@
-StatsD [![Build Status](https://secure.travis-ci.org/datadog/statsd.png)](http://travis-ci.org/datadog/statsd)
+StatsD 
 ======
+[![Build Status](https://travis-ci.org/DataDog/statsd.png?branch=master)](https://travis-ci.org/DataDog/statsd)
 
-A fork of [Etsy][etsy]'s network daemon for aggregating statistics (counters and timers), rolling them up, then sending them to [Datadog][datadog].
+A fork of etsy's network daemon for aggregating statistics (counters and timers), rolling them up, then sending them to [Datadog][datadog].
 
 Key Concepts
 --------
@@ -21,10 +22,10 @@ general values should be integer.
 Installation and Configuration
 ------------------------------
 
- * Install node.js
- * Clone the project
- * Create a config file from exampleConfig.js and put it somewhere
- * Start the Daemon:
+1. Install node.js
+2. Clone the project
+3. Create a config file from exampleConfig.js and put it somewhere
+4. Start the Daemon
 
     node stats.js /path/to/config
 
