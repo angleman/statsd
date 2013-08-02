@@ -77,8 +77,7 @@ Tests can be executed with `./run_tests.sh`.
 
 Meta
 ---------
-- IRC channel: `#statsd` on freenode
-- Mailing list: `statsd@librelist.com`
+- IRC channel: `#datadog` on freenode
 
 
 Contribute
