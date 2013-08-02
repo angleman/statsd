@@ -1,33 +1,49 @@
+/*jshint node:true, laxcomma:true */
+
 var dgram  = require('dgram')
   , util    = require('util')
   , net    = require('net')
-  , config = require('./config')
+  , config = require('./lib/config')
   , fs     = require('fs')
   , events = require('events')
+  , logger = require('./lib/logger')
+  , set = require('./lib/set')
+  , pm = require('./lib/process_metrics')
+  , mgmt = require('./lib/mgmt_console');
 
+
+// initialize data structures with defaults for statsd stats
 var keyCounter = {};
 var counters = {};
 var timers = {};
+var timer_counters = {};
 var gauges = {};
+var sets = {};
+var counter_rates = {};
+var timer_data = {};
 var pctThreshold = null;
-var debugInt, flushInterval, keyFlushInt, server, mgmtServer;
+var flushInterval, keyFlushInt, server, mgmtServer;
 var startup_time = Math.round(new Date().getTime() / 1000);
 var backendEvents = new events.EventEmitter();
+var healthStatus = config.healthStatus || 'up';
 
 // Load and init the backend from the backends/ directory.
 function loadBackend(config, name) {
   var backendmod = require(name);
 
   if (config.debug) {
-    util.log("Loading backend: " + name);
+    l.log("Loading backend: " + name, 'DEBUG');
   }
 
   var ret = backendmod.init(startup_time, config, backendEvents);
   if (!ret) {
-    util.log("Failed to load backend: " + name);
+    l.log("Failed to load backend: " + name);
     process.exit(1);
   }
-};
+}
+
+// global for conf
+var conf;
 
 // Flush metrics to each backend.
 function flushMetrics() {
@@ -37,103 +53,199 @@ function flushMetrics() {
     counters: counters,
     gauges: gauges,
     timers: timers,
-    pctThreshold: pctThreshold
-  }
+    timer_counters: timer_counters,
+    sets: sets,
+    counter_rates: counter_rates,
+    timer_data: timer_data,
+    pctThreshold: pctThreshold,
+    histogram: conf.histogram
+  };
 
   // After all listeners, reset the stats
   backendEvents.once('flush', function clear_metrics(ts, metrics) {
+    // TODO: a lot of this should be moved up into an init/constructor so we don't have to do it every
+    // single flushInterval....
+    // allows us to flag all of these on with a single config but still override them individually
+    conf.deleteIdleStats = conf.deleteIdleStats !== undefined ? conf.deleteIdleStats : false;
+    if (conf.deleteIdleStats) {
+      conf.deleteCounters = conf.deleteCounters !== undefined ? conf.deleteCounters : true;
+      conf.deleteTimers = conf.deleteTimers !== undefined ? conf.deleteTimers : true;
+      conf.deleteSets = conf.deleteSets !== undefined ? conf.deleteSets : true;
+      conf.deleteGauges = conf.deleteGauges !== undefined ? conf.deleteGauges : true;
+    }
+
     // Clear the counters
-    for (key in metrics.counters) {
-      metrics.counters[key] = 0;
+    conf.deleteCounters = conf.deleteCounters || false;
+    for (var counter_key in metrics.counters) {
+      if (conf.deleteCounters) {
+        if ((counter_key.indexOf("packets_received") != -1) || (counter_key.indexOf("bad_lines_seen") != -1)) {
+          metrics.counters[counter_key] = 0;
+        } else {
+         delete(metrics.counters[counter_key]);
+        }
+      } else {
+        metrics.counters[counter_key] = 0;
+      }
     }
 
     // Clear the timers
-    for (key in metrics.timers) {
-      metrics.timers[key] = [];
+    conf.deleteTimers = conf.deleteTimers || false;
+    for (var timer_key in metrics.timers) {
+      if (conf.deleteTimers) {
+        delete(metrics.timers[timer_key]);
+        delete(metrics.timer_counters[timer_key]);
+      } else {
+        metrics.timers[timer_key] = [];
+        metrics.timer_counters[timer_key] = 0;
+     }
+    }
+
+    // Clear the sets
+    conf.deleteSets = conf.deleteSets || false;
+    for (var set_key in metrics.sets) {
+      if (conf.deleteSets) {
+        delete(metrics.sets[set_key]);
+      } else {
+        metrics.sets[set_key] = new set.Set();
+      }
+    }
+
+	// normally gauges are not reset.  so if we don't delete them, continue to persist previous value
+    conf.deleteGauges = conf.deleteGauges || false;
+    if (conf.deleteGauges) {
+      for (var gauge_key in metrics.gauges) {
+        delete(metrics.gauges[gauge_key]);
+      }
     }
   });
 
-  // Flush metrics to each backend.
-  backendEvents.emit('flush', time_stamp, metrics_hash);
-};
+  pm.process_metrics(metrics_hash, flushInterval, time_stamp, function emitFlush(metrics) {
+    backendEvents.emit('flush', time_stamp, metrics);
+  });
+
+}
 
 var stats = {
   messages: {
     last_msg_seen: startup_time,
-    bad_lines_seen: 0,
+    bad_lines_seen: 0
   }
 };
 
-config.configFile(process.argv[2], function (config, oldConfig) {
-  if (! config.debug && debugInt) {
-    clearInterval(debugInt);
-    debugInt = false;
-  }
+// Global for the logger
+var l;
 
-  if (config.debug) {
-    if (debugInt !== undefined) { clearInterval(debugInt); }
-    debugInt = setInterval(function () {
-      util.log("Counters:\n" + util.inspect(counters) +
-               "\nTimers:\n" + util.inspect(timers) +
-               "\nGauges:\n" + util.inspect(gauges));
-    }, config.debugInterval || 10000);
-  }
+config.configFile(process.argv[2], function (config, oldConfig) {
+  conf = config;
+  l = new logger.Logger(config.log || {});
+
+  // setup config for stats prefix
+  prefixStats = config.prefixStats;
+  prefixStats = prefixStats !== undefined ? prefixStats : "statsd";
+  //setup the names for the stats stored in counters{}
+  bad_lines_seen   = prefixStats + ".bad_lines_seen";
+  packets_received = prefixStats + ".packets_received";
+
+  //now set to zero so we can increment them
+  counters[bad_lines_seen]   = 0;
+  counters[packets_received] = 0;
 
   if (server === undefined) {
 
     // key counting
     var keyFlushInterval = Number((config.keyFlush && config.keyFlush.interval) || 0);
 
-    server = dgram.createSocket('udp4', function (msg, rinfo) {
-      if (config.dumpMessages) { util.log(msg.toString()); }
-      var bits = msg.toString().split(':');
-      var key = bits.shift()
-                    .replace(/\s+/g, '_')
-                    .replace(/\//g, '-')
-                    .replace(/[^a-zA-Z_\-0-9\.]/g, '');
-
-      if (keyFlushInterval > 0) {
-        if (! keyCounter[key]) {
-          keyCounter[key] = 0;
-        }
-        keyCounter[key] += 1;
+    var udp_version = config.address_ipv6 ? 'udp6' : 'udp4';
+    server = dgram.createSocket(udp_version, function (msg, rinfo) {
+      backendEvents.emit('packet', msg, rinfo);
+      counters[packets_received]++;
+      var packet_data = msg.toString();
+      if (packet_data.indexOf("\n") > -1) {
+        var metrics = packet_data.split("\n");
+      } else {
+        var metrics = [ packet_data ] ;
       }
 
-      if (bits.length == 0) {
-        bits.push("1");
+      for (var midx in metrics) {
+        if (metrics[midx].length === 0) {
+          continue;
+        }
+        if (config.dumpMessages) {
+          l.log(metrics[midx].toString());
+        }
+        var bits = metrics[midx].toString().split(':');
+        var key = bits.shift()
+                      .replace(/\s+/g, '_')
+                      .replace(/\//g, '-')
+                      .replace(/[^a-zA-Z_\-0-9\.]/g, '');
+
+        if (keyFlushInterval > 0) {
+          if (! keyCounter[key]) {
+            keyCounter[key] = 0;
+          }
+          keyCounter[key] += 1;
+        }
+
+        if (bits.length === 0) {
+          bits.push("1");
+        }
+
+        for (var i = 0; i < bits.length; i++) {
+          var sampleRate = 1;
+          var fields = bits[i].split("|");
+          if (fields[2]) {
+            if (fields[2].match(/^@([\d\.]+)/)) {
+              sampleRate = Number(fields[2].match(/^@([\d\.]+)/)[1]);
+            } else {
+              l.log('Bad line: ' + fields + ' in msg "' + metrics[midx] +'"; has invalid sample rate');
+              counters[bad_lines_seen]++;
+              stats.messages.bad_lines_seen++;
+              continue;
+            }
+          }
+          if (fields[1] === undefined) {
+              l.log('Bad line: ' + fields + ' in msg "' + metrics[midx] +'"');
+              counters[bad_lines_seen]++;
+              stats.messages.bad_lines_seen++;
+              continue;
+          }
+          var metric_type = fields[1].trim();
+          if (metric_type === "ms") {
+            if (! timers[key]) {
+              timers[key] = [];
+              timer_counters[key] = 0;
+            }
+            timers[key].push(Number(fields[0] || 0));
+            timer_counters[key] += (1 / sampleRate);
+          } else if (metric_type === "g") {
+            if (gauges[key] && fields[0].match(/^[-+]/)) {
+              gauges[key] += Number(fields[0] || 0);
+            } else {
+              gauges[key] = Number(fields[0] || 0);
+            }
+          } else if (metric_type === "s") {
+            if (! sets[key]) {
+              sets[key] = new set.Set();
+            }
+            sets[key].insert(fields[0] || '0');
+          } else {
+            if (! counters[key]) {
+              counters[key] = 0;
+            }
+            counters[key] += Number(fields[0] || 1) * (1 / sampleRate);
+          }
+        }
       }
 
-      for (var i = 0; i < bits.length; i++) {
-        var sampleRate = 1;
-        var fields = bits[i].split("|");
-        if (fields[1] === undefined) {
-            util.log('Bad line: ' + fields);
-            stats['messages']['bad_lines_seen']++;
-            continue;
-        }
-        if (fields[1].trim() == "ms") {
-          if (! timers[key]) {
-            timers[key] = [];
-          }
-          timers[key].push(Number(fields[0] || 0));
-        } else if (fields[1].trim() == "g") {
-          gauges[key] = Number(fields[0] || 0);
-        } else {
-          if (fields[2] && fields[2].match(/^@([\d\.]+)/)) {
-            sampleRate = Number(fields[2].match(/^@([\d\.]+)/)[1]);
-          }
-          if (! counters[key]) {
-            counters[key] = 0;
-          }
-          counters[key] += Number(fields[0] || 1) * (1 / sampleRate);
-        }
-      }
-
-      stats['messages']['last_msg_seen'] = Math.round(new Date().getTime() / 1000);
+      stats.messages.last_msg_seen = Math.round(new Date().getTime() / 1000);
     });
 
     mgmtServer = net.createServer(function(stream) {
       stream.setEncoding('ascii');
+
+      stream.on('error', function(err) {
+        l.log('Caught ' + err +', Moving on');
+      });
 
       stream.on('data', function(data) {
         var cmdline = data.trim().split(" ");
@@ -141,7 +253,19 @@ config.configFile(process.argv[2], function (config, oldConfig) {
 
         switch(cmd) {
           case "help":
-            stream.write("Commands: stats, counters, timers, gauges, delcounters, deltimers, delgauges, quit\n\n");
+            stream.write("Commands: stats, counters, timers, gauges, delcounters, deltimers, delgauges, health, quit\n\n");
+            break;
+
+          case "health":
+            if (cmdline.length > 0) {
+              var cmdaction = cmdline[0].toLowerCase();
+              if (cmdaction === 'up') {
+                healthStatus = 'up';
+              } else if (cmdaction === 'down') {
+                healthStatus = 'down';
+              }
+            }
+            stream.write("health: " + healthStatus + "\n");
             break;
 
           case "stats":
@@ -164,8 +288,8 @@ config.configFile(process.argv[2], function (config, oldConfig) {
             };
 
             // Loop through the base stats
-            for (group in stats) {
-              for (metric in stats[group]) {
+            for (var group in stats) {
+              for (var metric in stats[group]) {
                 stat_writer(group, metric, stats[group][metric]);
               }
             }
@@ -177,7 +301,7 @@ config.configFile(process.argv[2], function (config, oldConfig) {
             // Let each backend contribute its status
             backendEvents.emit('status', function(err, name, stat, val) {
               if (err) {
-                util.log("Failed to read stats for backend " +
+                l.log("Failed to read stats for backend " +
                          name + ": " + err);
               } else {
                 stat_writer(name, stat, val);
@@ -202,27 +326,15 @@ config.configFile(process.argv[2], function (config, oldConfig) {
             break;
 
           case "delcounters":
-            for (index in cmdline) {
-              delete counters[cmdline[index]];
-              stream.write("deleted: " + cmdline[index] + "\n");
-            }
-            stream.write("END\n\n");
+            mgmt.delete_stats(counters, cmdline, stream);
             break;
 
           case "deltimers":
-            for (index in cmdline) {
-              delete timers[cmdline[index]];
-              stream.write("deleted: " + cmdline[index] + "\n");
-            }
-            stream.write("END\n\n");
+            mgmt.delete_stats(timers, cmdline, stream);
             break;
 
           case "delgauges":
-            for (index in cmdline) {
-              delete gauges[cmdline[index]];
-              stream.write("deleted: " + cmdline[index] + "\n");
-            }
-            stream.write("END\n\n");
+            mgmt.delete_stats(gauges, cmdline, stream);
             break;
 
           case "quit":
@@ -264,13 +376,12 @@ config.configFile(process.argv[2], function (config, oldConfig) {
 
     if (keyFlushInterval > 0) {
       var keyFlushPercent = Number((config.keyFlush && config.keyFlush.percent) || 100);
-      var keyFlushLog = (config.keyFlush && config.keyFlush.log) || "stdout";
+      var keyFlushLog = config.keyFlush && config.keyFlush.log;
 
       keyFlushInt = setInterval(function () {
-        var key;
         var sortedKeys = [];
 
-        for (key in keyCounter) {
+        for (var key in keyCounter) {
           sortedKeys.push([key, keyCounter[key]]);
         }
 
@@ -284,13 +395,31 @@ config.configFile(process.argv[2], function (config, oldConfig) {
           logMessage += timeString + " count=" + sortedKeys[i][1] + " key=" + sortedKeys[i][0] + "\n";
         }
 
-        var logFile = fs.createWriteStream(keyFlushLog, {flags: 'a+'});
-        logFile.write(logMessage);
-        logFile.end();
+        if (keyFlushLog) {
+          var logFile = fs.createWriteStream(keyFlushLog, {flags: 'a+'});
+          logFile.write(logMessage);
+          logFile.end();
+        } else {
+          process.stdout.write(logMessage);
+        }
 
         // clear the counter
         keyCounter = {};
       }, keyFlushInterval);
     }
   }
+});
+
+process.title = 'statsd';
+
+process.on('SIGTERM', function() {
+  if (conf.debug) {
+    util.log('Starting Final Flush');
+  }
+  healthStatus = 'down';
+  process.exit();
+});
+
+process.on('exit', function () {
+  flushMetrics();
 });
