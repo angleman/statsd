@@ -7,9 +7,7 @@ Key Concepts
 --------
 
 * *buckets*
-  Each stat is in its own "bucket". They are not predefined anywhere. Buckets
-can be named anything that will translate to Graphite (periods make folders,
-etc)
+  Each stat is in its own "bucket". They are not predefined anywhere.
 
 * *values*
   Each stat will have a value. How it is interpreted depends on modifiers. In
@@ -29,16 +27,6 @@ Installation and Configuration
  * Start the Daemon:
 
     node stats.js /path/to/config
-
-More Specific Topics
---------
-* [Metric Types][docs_metric_types]
-* [Graphite Integration][docs_graphite]
-* [Supported Backends][docs_backend]
-* [Admin TCP Interface][docs_admin_interface]
-* [Backend Interface][docs_backend_interface]
-* [Metric Namespacing][docs_namespacing]
-
 
 Debugging
 ---------
@@ -61,64 +49,9 @@ graphs or tables, or generate alerts based on defined thresholds. A
 backend can also correlate statistics sent from StatsD daemons running
 across multiple hosts in an infrastructure.
 
-StatsD includes the following backends:
-
-* [Graphite][graphite] (`graphite`): Graphite is an open-source
-  time-series data store that provides visualization through a
-  web-browser interface.
-
-By default, the `graphite` backend will be loaded automatically. To
-select which backends are loaded, set the `backends` configuration
-variable to the list of backend modules to load.
-
-Backends are just npm modules which implement the interface described in
-section *Backend Interface*. In order to be able to load the backend, add the
-module name into the `backends` variable in your config. As the name is also
-used in the `require` directive, you can load one of the provided backends by
-giving the relative path (e.g. `./backends/graphite`).
-
-Graphite Schema
----------------
-
-Graphite uses "schemas" to define the different round robin datasets it houses (analogous to RRAs in rrdtool). Here's what Etsy is using for the stats databases:
-
-    [stats]
-    priority = 110
-    pattern = ^stats\..*
-    retentions = 10:2160,60:10080,600:262974
-
-That translates to:
-
-* 6 hours of 10 second data (what we consider "near-realtime")
-* 1 week of 1 minute data
-* 5 years of 10 minute data
-
-This has been a good tradeoff so far between size-of-file (round robin databases are fixed size) and data we care about. Each "stats" database is about 3.2 megs with these retentions.
-
-TCP Stats Interface
--------------------
-
-A really simple TCP management interface is available by default on port 8126 or overriden in the configuration file. Inspired by the memcache stats approach this can be used to monitor a live statsd server.  You can interact with the management server by telnetting to port 8126, the following commands are available:
-
-* stats - some stats about the running server
-* counters - a dump of all the current counters
-* timers - a dump of the current timers
-
-The stats output currently will give you:
-
-* uptime: the number of seconds elapsed since statsd started
-* messages.last_msg_seen: the number of elapsed seconds since statsd received a message
-* messages.bad_lines_seen: the number of bad lines seen since startup
-
-Each backend will also publish a set of statistics, prefixed by its
-module name.
-
-Graphite:
-
-* graphite.last_flush: the number of seconds elapsed since the last successful flush to graphite
-* graphite.last_exception: the number of seconds elapsed since the last exception thrown whilst flushing to graphite
-
-A simple nagios check can be found in the utils/ directory that can be used to check metric thresholds, for example the number of seconds since the last successful flush to graphite.
+This fork specifically implements the Datadog backend. Other backends
+are available as well. See the [original documentation](https://github.com/etsy/statsd)
+for information about other backends.
 
 Installation and Configuration
 ------------------------------
