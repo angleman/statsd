@@ -2,6 +2,10 @@
   "name": "statsd",
   "description": "A simple, lightweight network daemon to collect metrics over UDP",
   "author": "Etsy",
+  "contributors":[
+    "datadog",
+    "angleman"
+  ],
   "scripts": {
     "test": "./run_tests.sh",
     "start": "node stats.js config.js",
