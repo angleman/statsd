@@ -21,9 +21,10 @@ general values should be integer.
 
 TurnKey Linux Install
 ---------------------------
-Start NodeJS instance in hub.turnkeylinux.com
-Open port 8125 for UDP
-Optionally open port 8126 for admin
+* Start NodeJS instance in hub.turnkeylinux.com
+* Open port 8125 for UDP
+* Open port 8126 for TCP admin, optional
+
 ```
 npm update
 apt-get update
