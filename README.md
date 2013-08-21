@@ -19,6 +19,27 @@ general values should be integer.
   default 10 seconds), stats are aggregated and sent to an upstream backend service.
 
 
+TurnKey Linux Install
+---------------------------
+Start NodeJS instance in hub.turnkeylinux.com
+Open port 8125 for UDP
+Optionally open port 8126 for admin
+```
+npm update
+apt-get update
+apt-get install sudo nano
+git clone https://github.com/angleman/statsd.git
+cd statsd
+npm install
+nano config.js
+```
+add datadogApiKey DATADOG API KEY at the bottom of config.js
+```
+node stats.js ./config.js
+```
+Disable TKL ports 12320 and 12321
+
+
 Installation and Configuration
 ------------------------------
 
