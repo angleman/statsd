@@ -38,7 +38,7 @@ add datadogApiKey DATADOG API KEY at the bottom of config.js
 ```
 node stats.js ./config.js
 ```
-Disable TKL ports 12320 and 12321
+Disable TKL ports 22, 80, 443, 12320 and 12321 as needed
 
 
 Installation and Configuration
